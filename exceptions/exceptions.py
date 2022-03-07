@@ -25,3 +25,6 @@ class OrderError(NoTraceBackWithLineNumber):
 
 class TradesError(NoTraceBackWithLineNumber):
     pass
+
+class ExchangeError(NoTraceBackWithLineNumber):
+    pass
