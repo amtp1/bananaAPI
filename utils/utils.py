@@ -1,4 +1,5 @@
 from datetime import datetime as dt
+from decimal import Decimal as D, ROUND_DOWN, ROUND_UP
 
 from types import NoneType
 from binance.spot import Spot
@@ -67,15 +68,25 @@ class Driver:
             raise TradesError(e)
 
     def exchange_info(self, symbol: str = None):
+        if not symbol:
+            raise ExchangeError("symbol value is empty")
+
         exchng_info = self.client.exchange_info(symbol=symbol)
         return exchng_info
 
     def trade_fee(self, symbol: str = None):
+        if not symbol:
+            raise TradesError("symbol value is empty")
+
         fee = self.client.trade_fee(symbol=symbol)
         return fee
 
-    def get_price_by_symbol(self, symbol: str = None) -> float:
-        return self.depth(symbol=symbol, limit=1).get("bids")[0][0]
+    def get_price_by_symbol(self, symbol: str = None, limit: int = 3) -> float:
+        value: float = 0.0
+        bids = self.depth(symbol=symbol, limit=limit).get("bids")
+        for n in bids:
+            value+=float(n[0])
+        return float("{:0.2f}".format(value/limit))
 
     def stream(self):
         #print(self.current_balance())
@@ -86,18 +97,46 @@ class Driver:
             "quantity": None
         }
 
-        step_count: int = 0
-        for coin in self.steps_symbols:
-            couple: list = coin.get("couple")
+        count_iter: int = 0
+        while True:
             get_price = self.get_price_by_symbol
-            if not couple[0] in ("USDT", "RUB",):
-                #print(self.get_value_by_symbol(symbol=couple[1]))
-                symbol = "".join(couple)
-                params["symbol"] = symbol
-                params["side"] = coin.get("side")
-            elif couple[0] == "USDT":
-                symbol = "".join(couple)
-            print(get_price(symbol=symbol))
-            #step_count+=1
-            #if step_count == 3:
-            #    break
+            get_value = self.get_value_by_symbol
+            is_rouble_step = True
+            roubles = get_value(symbol="RUB") - 100
+            logger.info(F"Начальный баланс(RUB): {roubles}")
+            for coin in self.steps_symbols:
+                couple: list = coin.get("couple")
+                if not couple[0] in ("USDT", "RUB",):
+                    symbol = "".join(couple)
+                    params["symbol"] = symbol
+                    params["side"] = coin.get("side")
+                    if is_rouble_step:
+                        first_count_coins = int(roubles / get_price(symbol=symbol)) # For our example is DOT.
+                        is_rouble_step = False
+                        params["quantity"] = first_count_coins #int(float("{:0.2f}".format(first_count_coins)))
+                        response = self.create_new_order(**params)
+                        logger.info(F"1 Order => {response}")
+                    else:
+                        params["symbol"] = symbol
+                        params["side"] = coin.get("side")
+                        second_count_coins = int(first_count_coins * get_price(symbol=symbol)) # For our example is USDT.
+                        params["quantity"] = first_count_coins #int(float("{:0.2f}".format(first_count_coins)))
+                        response = self.create_new_order(**params)
+                        logger.info(F"2 Order => {response}")
+                elif couple[0] == "USDT":
+                    symbol = "".join(couple)
+                    params["symbol"] = symbol
+                    params["side"] = coin.get("side")
+                    third_count_coins = int(second_count_coins * get_price(symbol=symbol))
+                    params["quantity"] = second_count_coins #int(float("{:.2f}".format(second_count_coins)))
+                    response = self.create_new_order(**params)
+                    logger.info(F"3 Order => {response}")
+                    is_rouble_step = True
+
+            logger.info(F"Конечный баланс(RUB): {third_count_coins}")
+            percent = third_count_coins * 100 / roubles
+            logger.info(F"Профит: {percent - 100.0 - 0.4}%\n")
+            count_iter+=1
+
+            if count_iter == 1:
+                break
