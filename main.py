@@ -28,16 +28,16 @@ def main():
     driver = Driver(config)
 
     params = {
-        'symbol': 'USDTRUB',
+        'symbol': 'DOTRUB',
         'side': "BUY",
         'type': 'MARKET',
-        'quantity': 25,
+        'quantity': 1.3,
     }
 
-    driver.stream()
-
+    #print(driver.get_price_by_symbol(symbol="DOTRUB"))
     #response = driver.create_new_order(**params)
-    #print(response)
+    #logger.info(response)
+    driver.stream()
 
     """
     with open(f"orders_100.txt", "w") as f:
