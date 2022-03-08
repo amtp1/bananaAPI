@@ -11,10 +11,8 @@ from time import sleep
 from utils.utils import *
 from exceptions.exceptions import *
 
-BASE_DIR = Path(__file__).resolve().parent
-
 def main():
-    if not Path(r"%s\\config.yaml" % BASE_DIR).is_file():
+    if not Path(r"config.yaml").is_file():
         raise FileError("'config.yaml' is not found")
 
     with open(r"config.yaml") as f:
