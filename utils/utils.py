@@ -16,6 +16,7 @@ class Driver:
             {"couple": ["DOT", "USDT"], "side": "SELL"},
             {"couple": ["USDT", "RUB"], "side": "SELL"}
         ]
+        self.comission = 0.1 # Percent value
 
     def current_balance(self) -> float:
         balance: float = 0.0
@@ -103,7 +104,8 @@ class Driver:
             get_value = self.get_value_by_symbol
             is_rouble_step = True
             roubles = get_value(symbol="RUB") - 100
-            logger.info(F"Начальный баланс(RUB): {roubles}")
+            logger.info(F"Начальный баланс(RUB): {roubles + 100}")
+            """
             for coin in self.steps_symbols:
                 couple: list = coin.get("couple")
                 if not couple[0] in ("USDT", "RUB",):
@@ -132,10 +134,12 @@ class Driver:
                     response = self.create_new_order(**params)
                     logger.info(F"3 Order => {response}")
                     is_rouble_step = True
+            
 
             logger.info(F"Конечный баланс(RUB): {third_count_coins}")
             percent = third_count_coins * 100 / roubles
             logger.info(F"Профит: {percent - 100.0 - 0.4}%\n")
+            """
             count_iter+=1
 
             if count_iter == 1:
