@@ -1,7 +1,6 @@
 from datetime import datetime as dt
 from decimal import Decimal as D, ROUND_DOWN, ROUND_UP
 
-from types import NoneType
 from binance.spot import Spot
 import pandas as pd
 from loguru import logger
@@ -44,7 +43,7 @@ class Driver:
         except Exception as e:
             raise OrderError(e)
 
-    def depth(self, save_to_exel: NoneType = None, symbol: str = None, limit: int = None) -> dict:
+    def depth(self, save_to_exel: bool = None, symbol: str = None, limit: int = None) -> dict:
         if not limit:
             raise DepthError("limit value is empty")
         elif not symbol:
@@ -111,24 +110,26 @@ class Driver:
                     params["symbol"] = symbol
                     params["side"] = coin.get("side")
                     if is_rouble_step:
-                        first_count_coins = int(roubles / get_price(symbol=symbol)) # For our example is DOT.
+                        first_count_coins = roubles / get_price(symbol=symbol) # For our example is DOT.
                         is_rouble_step = False
-                        params["quantity"] = first_count_coins #int(float("{:0.2f}".format(first_count_coins)))
+                        params["quantity"] = float("{:0.2f}".format(first_count_coins))
+                        print(first_count_coins)
                         response = self.create_new_order(**params)
                         logger.info(F"1 Order => {response}")
                     else:
                         params["symbol"] = symbol
                         params["side"] = coin.get("side")
-                        second_count_coins = int(first_count_coins * get_price(symbol=symbol)) # For our example is USDT.
-                        params["quantity"] = first_count_coins #int(float("{:0.2f}".format(first_count_coins)))
+                        second_count_coins = first_count_coins * get_price(symbol=symbol) + (get_value(symbol="USDT") // 1) # For our example is USDT.
+                        params["quantity"] = float("{:0.2f}".format(first_count_coins))
+                        print(second_count_coins)
                         response = self.create_new_order(**params)
                         logger.info(F"2 Order => {response}")
                 elif couple[0] == "USDT":
                     symbol = "".join(couple)
                     params["symbol"] = symbol
                     params["side"] = coin.get("side")
-                    third_count_coins = int(second_count_coins * get_price(symbol=symbol))
-                    params["quantity"] = second_count_coins #int(float("{:.2f}".format(second_count_coins)))
+                    third_count_coins = second_count_coins * get_price(symbol=symbol)
+                    params["quantity"] = int(float("{:.2f}".format(second_count_coins)))
                     response = self.create_new_order(**params)
                     logger.info(F"3 Order => {response}")
                     is_rouble_step = True
