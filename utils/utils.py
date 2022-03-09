@@ -1,5 +1,8 @@
+from math import remainder
+from time import sleep
 from datetime import datetime as dt
 from decimal import Decimal as D, ROUND_DOWN, ROUND_UP
+from itertools import count
 
 from binance.spot import Spot
 import pandas as pd
@@ -15,7 +18,8 @@ class Driver:
             {"couple": ["DOT", "USDT"], "side": "SELL"},
             {"couple": ["USDT", "RUB"], "side": "SELL"}
         ]
-        self.comission = 0.1 # Percent value
+        self.remainder = 50 # Remainder balance. Default: roubles.
+        self.percent = 0.1 # Percent value
 
     def current_balance(self) -> float:
         balance: float = 0.0
@@ -89,7 +93,6 @@ class Driver:
         return float("{:0.2f}".format(value/limit))
 
     def stream(self):
-        #print(self.current_balance())
         params = {
             "symbol": None,
             "side": None,
@@ -98,50 +101,72 @@ class Driver:
         }
 
         count_iter: int = 0
+        commission: float = 0.0
+        start_time = dt.now()
         while True:
-            get_price = self.get_price_by_symbol
-            get_value = self.get_value_by_symbol
-            is_rouble_step = True
-            roubles = get_value(symbol="RUB") - 100
-            logger.info(F"Начальный баланс(RUB): {roubles + 100}")
-            """
-            for coin in self.steps_symbols:
-                couple: list = coin.get("couple")
+            get_price = self.get_price_by_symbol # (Function object) Gets the price of a symbol.
+            get_value = self.get_value_by_symbol # (Function object) Gets the balance value of a symbol.
+            to_float = self.to_float_format      # (Function object) Convert value to float type.
+            percent = self.get_percent           # (Function object) Get percent.
+            is_rouble_step = True # Rouble step while iterating. Default: True.
+            roubles = get_value(symbol="RUB") - self.remainder # Roubles balance without remainder.
+            logger.info(F"Начальный баланс: {to_float(roubles)}₽") # Show balance value with remainder.
+
+            for step in self.steps_symbols:
+                couple: list = step.get("couple") # Get couple from steps value.
+                symbol: str = "".join(couple)     # Join couple in the symbol.
+
+                params["symbol"] = symbol         # Set a symbol value in the params.
+                params["side"] = step.get("side") # Set a side value in the params.
+
                 if not couple[0] in ("USDT", "RUB",):
-                    symbol = "".join(couple)
-                    params["symbol"] = symbol
-                    params["side"] = coin.get("side")
                     if is_rouble_step:
-                        first_count_coins = roubles / get_price(symbol=symbol) # For our example is DOT.
-                        is_rouble_step = False
-                        params["quantity"] = float("{:0.2f}".format(first_count_coins))
-                        print(first_count_coins)
-                        response = self.create_new_order(**params)
-                        logger.info(F"1 Order => {response}")
+                        count_exchng = to_float(roubles / get_price(symbol=symbol))
+                        commission+=to_float(percent((count_exchng * 0.1 / 100) * get_price("DOTUSDT"), is_dollar=True))
+                        params["quantity"] = count_exchng
+                        is_rouble_step=False
+                        #response = self.create_new_order(**params)
+                        #logger.info(F"1 ITER: {response}")
                     else:
-                        params["symbol"] = symbol
-                        params["side"] = coin.get("side")
-                        second_count_coins = first_count_coins * get_price(symbol=symbol) + (get_value(symbol="USDT") // 1) # For our example is USDT.
-                        params["quantity"] = float("{:0.2f}".format(first_count_coins))
-                        print(second_count_coins)
-                        response = self.create_new_order(**params)
-                        logger.info(F"2 Order => {response}")
+                        remainder_usdt = get_value(symbol="USDT")
+                        params["quantity"] = count_exchng
+                        count_exchng = to_float(count_exchng * get_price(symbol="DOTUSDT")) + (get_value(symbol="USDT") // 1)
+                        commission+=to_float(percent(count_exchng * 0.1 / 100, is_dollar=True))
+                        #response = self.create_new_order(**params)
+                        #logger.info(F"2 ITER: {response}")
                 elif couple[0] == "USDT":
-                    symbol = "".join(couple)
-                    params["symbol"] = symbol
-                    params["side"] = coin.get("side")
-                    third_count_coins = second_count_coins * get_price(symbol=symbol)
-                    params["quantity"] = int(float("{:.2f}".format(second_count_coins)))
-                    response = self.create_new_order(**params)
-                    logger.info(F"3 Order => {response}")
+                    params["quantity"] = self.to_integer_format(count_exchng)
+                    count_exchng = count_exchng * to_float(get_price(symbol=symbol))
+                    commission+=to_float(percent(value=count_exchng, is_rouble=True))
+                    #response = self.create_new_order(**params)
+                    #logger.info(F"3 ITER: {response}")
                     is_rouble_step = True
-            
 
-            logger.info(F"Конечный баланс(RUB): {third_count_coins}")
-            percent = third_count_coins * 100 / roubles
-            logger.info(F"Профит: {percent - 100.0 - 0.4}%\n")
-            """
+            profit = "{:0.5f}".format(((count_exchng - commission) * 100 / roubles) - 100)
+            logger.info(F"Конечный баланс: {count_exchng - commission}₽\nКомиссия: {to_float(commission)}₽\nПрофит: {profit}%\n")
+            commission = 0.0
+
+            end_time = int((dt.now() - start_time).total_seconds())
+
+            #sleep(3)
+
+            #if end_time >= 60:
+            #    break
+
             count_iter+=1
-
-            if count_iter == 1:
+            sleep(3)
+            if count_iter == 5:
                 break
+
+    def to_float_format(self, price: str) -> float:
+        return float("{:0.2f}".format(price))
+
+    def to_integer_format(self, price: str) -> int:
+        return int(float("{:0.2f}".format(price)))
+    
+    def get_percent(self, value: str = None, is_dollar: bool = False, is_rouble: bool = False) -> float:
+        if is_dollar:
+            value: float = value * self.get_price_by_symbol(symbol="USDTRUB")
+        elif is_rouble:
+            value: float = value * self.percent / 100
+        return value
