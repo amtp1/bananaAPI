@@ -143,7 +143,11 @@ class Driver:
                     is_rouble_step = True
 
             profit = "{:0.5f}".format(((count_exchng - commission) * 100 / roubles) - 100)
-            logger.info(F"Конечный баланс: {count_exchng - commission}₽\nКомиссия: {to_float(commission)}₽\nПрофит: {profit}%\n")
+            logger.info((
+                F"Конечный баланс: {count_exchng - commission}₽\n"
+                F"Комиссия: {to_float(commission)}₽\n"
+                F"Профит: {profit}%\n")
+            )
             commission = 0.0
 
             end_time = int((dt.now() - start_time).total_seconds())
