@@ -3,6 +3,8 @@ import inspect
 from binance.error import ClientError
 from numpy import isin
 
+from loguru import logger
+
 class NoTraceBackWithLineNumber(Exception):
     def __init__(self, msg):
         try:
@@ -12,6 +14,7 @@ class NoTraceBackWithLineNumber(Exception):
         except AttributeError:
             ln = inspect.currentframe().f_back.f_lineno
             self.args = "{0.__name__} (line {1}): {2}".format(type(self), ln, msg),
+        logger.error(F"{self.args}\n")
         sys.exit(self)
 
 class FileError(NoTraceBackWithLineNumber):
