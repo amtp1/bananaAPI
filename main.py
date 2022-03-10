@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime as dt
 
 import yaml
 from loguru import logger
@@ -13,8 +14,9 @@ def main():
     with open(r"config.yaml") as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
+    n_dt = dt.now().strftime("%Y-%m-%d")
     logger.add(
-        r"debug/debug_check_profit.log", format="{time} {level} {message}",
+        r"debug/debug_%s.log" % n_dt, format="{time} {level} {message}",
         level="DEBUG", rotation="1 week",
         compression="zip")
 
