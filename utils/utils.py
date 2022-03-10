@@ -204,10 +204,9 @@ class Driver:
 
         count_iter: int = 0 # Count iteration steps. Before cycle value eqauls is 0
         before_commission: float = 0.0 # Commission value before cycle. Value equals is 0
-        after_commission: float = 0.0 # Commission value after cycle. Value equals is 0
-        start_time = dt.now() # Start time.
 
         while True:
+            cycle_start_time = dt.now() # Start time.
             is_rouble_step = True # Rouble step while iterating. Default: True.
             roubles = get_qty(symbol="RUB") - self.remainder # Roubles balance without remainder.
             logger.info(F"Начальный баланс: {to_float(roubles)}₽") # Show balance value with remainder.
@@ -221,52 +220,58 @@ class Driver:
 
                 if not couple[0] in ("USDT", "RUB",):
                     if is_rouble_step:
-                        before_count_exchng = to_float(roubles / get_price(symbol=symbol))
-                        before_commission+=to_float(percent((before_count_exchng * 0.1 / 100) * get_price("DOTUSDT"), is_dollar=True))
-                        params["quantity"] = before_count_exchng
-                        is_rouble_step=False
-                        #response = self.create_new_order(**params)
-                        #after_deal = response.get("fills")[0]
-                        #after_count_exchng = before_count_exchng
-                        #after_commission+=to_float(percent(float(after_deal.get("commission")) * get_price("DOTUSDT"), is_dollar=True))
-                        #logger.info(F"1 ITER: {response}")
+                        start_time = dt.now() # Start time.
+                        before_count_exchng = to_float(roubles / get_price(symbol=symbol)) # Generated count exchange.
+                        order_commission = to_float(percent((before_count_exchng * self.percent / 100) * get_price("DOTUSDT"), is_dollar=True)) # Generated commission per order.
+                        before_commission+=order_commission # Add commissiom value per order to the main commission value.
+                        end_time = (dt.now() - start_time).total_seconds() # End time.
+                        logger.info(F"1 итерация => Время выполнения (секунды): {end_time}; Символ: {symbol}; Количество: {before_count_exchng}; Комиссия: {order_commission} RUB")
+                        params["quantity"] = before_count_exchng # Set quantity in the params.
+                        is_rouble_step=False # Set False value for var because next step must be another coin.
+                        ##response = self.create_new_order(**params)
+                        ##logger.info(F"1 ITER: {response}")
                     else:
-                        params["quantity"] = before_count_exchng
-                        before_count_exchng = to_float(before_count_exchng * get_price(symbol="DOTUSDT")) #+ (get_value(symbol="USDT") // 1)
-                        before_commission+=to_float(percent(before_count_exchng * 0.1 / 100, is_dollar=True))
-                        #response = self.create_new_order(**params)
-                        #after_deal = response.get("fills")[0]
-                        #after_count_exchng = before_count_exchng
-                        #after_commission+=to_float(percent(float(after_deal.get("commission")), is_dollar=True))
-                        #logger.info(F"2 ITER: {response}")
+                        params["quantity"] = before_count_exchng # Set quantity in the params.
+                        start_time = dt.now() # Start time.
+                        before_count_exchng = to_float(before_count_exchng * get_price(symbol="DOTUSDT")) # Generated count exchange.
+                        order_commission = to_float(percent(before_count_exchng * self.percent / 100, is_dollar=True)) # Generated commission per order.
+                        before_commission+=order_commission # Add commissiom value per order to the main commission value.
+                        end_time = (dt.now() - start_time).total_seconds() # End time.
+                        logger.info(F"2 итерация => Время выполнения (секунды): {end_time}; Символ: {symbol}; Количество: {before_count_exchng}; Комиссия: {order_commission} RUB")
+                        ##response = self.create_new_order(**params)
+                        ##logger.info(F"2 ITER: {response}")
                 elif couple[0] == "USDT":
+                    # Set quantity in the params and convert to integer format because last order to support integer type.
                     params["quantity"] = to_integer_format(before_count_exchng)
-                    before_count_exchng = before_count_exchng * to_float(get_price(symbol=symbol))
-                    before_commission+=to_float(percent(value=before_count_exchng))
-                    #response = self.create_new_order(**params)
-                    #after_deal = response.get("fills")[0]
-                    #after_count_exchng = before_count_exchng
-                    #after_commission+=to_float(percent(float(after_deal.get("commission")), is_rouble=True))
-                    #logger.info(F"3 ITER: {response}")
-                    is_rouble_step = True
+                    start_time = dt.now() # Start time.
+                    before_count_exchng = before_count_exchng * to_float(get_price(symbol=symbol)) # Generated count exchange.
+                    order_commission = to_float(percent(before_count_exchng)) # Generated commission per order.
+                    before_commission+=order_commission # Add commissiom value per order to the main commission value.
+                    end_time = (dt.now() - start_time).total_seconds() # End time.
+                    logger.info(F"3 итерация => Время выполнения (секунды): {end_time}; Символ: {symbol}; Количество: {before_count_exchng}; Комиссия: {order_commission} RUB")
+                    ##response = self.create_new_order(**params)
+                    ##logger.info(F"3 ITER: {response}")
+                    is_rouble_step = True # Set True value for var because next step must be with roubles.
 
             before_profit = "{:0.5f}".format(((before_count_exchng - before_commission) * 100 / roubles) - 100)
-            #after_profit = "{:0.5f}".format(((after_count_exchng - after_commission) * 100 / roubles) - 100)
+
             logger.info((
-                F"Конечный баланс: {before_count_exchng - before_commission}₽\n"
-                F"Комиссия: {to_float(before_commission)}₽\n"
-                F"\nПотенциальный профит: {before_profit}%\n"
-                #F"Фактический профит: {after_profit}%\n"
+                F"Конечный баланс: {before_count_exchng - before_commission}₽; "
+                F"Комиссия: {to_float(before_commission)}₽; "
+                F"Потенциальный профит: {before_profit}%"
                 )
             )
-            before_commission = 0.0
-            after_commission = 0.0
 
-            end_time = int((dt.now() - start_time).total_seconds()) # End time.
-            logger.info(F"Time (seconds): {end_time}")
+            cycle_end_time = (dt.now() - cycle_start_time).total_seconds() # End time.
+            logger.info(F"Operation time (seconds): {cycle_end_time}\n")
+
+            # Reset varibales
+            before_commission = 0.0
+            cycle_end_time = None
+            end_time = None
 
             count_iter+=1
-            if count_iter == 1:
+            if count_iter == 5:
                 break
 
     def get_percent(self, qty: str = None, is_dollar: bool = False) -> float:
