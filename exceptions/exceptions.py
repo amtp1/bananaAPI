@@ -1,7 +1,6 @@
 import sys
 import inspect
 from binance.error import ClientError
-from numpy import isin
 
 from loguru import logger
 
