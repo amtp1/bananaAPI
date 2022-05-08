@@ -3,3 +3,4 @@ __pycache__
 env
 debug
 config.yaml
+bdata
