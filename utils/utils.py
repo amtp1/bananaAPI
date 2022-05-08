@@ -1,26 +1,25 @@
-from math import remainder
-from time import sleep
 from datetime import datetime as dt
-from itertools import count
 
 from binance.spot import Spot
 import pandas as pd
-from loguru import logger
+from logger.logger import logger
 
+from config.config import Config
 from .formatting import *
 from exceptions.exceptions import *
+from .context import *
+
+config = Config()
 
 
-class Driver:
-    def __init__(self, config: dict):
-        self.client = Spot(key=config.get("API-Key"), secret=config.get("Secret-Key")) # Init client object with configs.
-        self.steps_symbols = [
-            {"couple": ["DOT", "RUB"], "side": "BUY"},
-            {"couple": ["DOT", "USDT"], "side": "SELL"},
-            {"couple": ["USDT", "RUB"], "side": "SELL"}
-        ] # This is main steps for create orders.
+class Core:
+    def __init__(self):
+        """Initialize"""
+
+        self.client = Spot(key=config.config.get("API_KEY"), secret=config.config.get("SECRET_KEY")) # Init client object with configs.
         self.remainder = 50 # Remainder balance. Default is roubles.
         self.percent = 0.1 # Percent value.
+        self.is_rouble_step = True # Rouble step while iterating. Default: True.
 
     def current_balance(self) -> float:
         """The function takes all value of coins from client balance and return generated balance
@@ -46,11 +45,14 @@ class Driver:
                 # Check asset. Must not be in rub or usdt value if it another coins.
                 if not asset in ("RUB", "USDT",):
                     try:
-                        price: float = float(self.depth(symbol=f"{asset}USDT", limit=1).get("bids")[0][0]) # Get price from api.
-                        qty: float = float(free) * price # Generated qty from coins in the dollar value.
-                        balance+=qty # Add the quantity to the balance value.
-                    except:
-                        pass
+                        symbol: str = valid_symbol(asset) # Get valid symbol
+                        
+                        if symbol:
+                            price: float = float(self.depth(symbol=symbol, limit=1).get("bids")[0][0]) # Get price from api.
+                            qty: float = float(free) * price # Generated qty from coins in the dollar value.
+                            balance+=qty # Add the quantity to the balance value.
+                    except Exception as e:
+                        logger.error(e)
                 elif asset == "USDT":
                     balance+=float(free) # Add the quantity to the balance value. Default is dollar value.
         return balance
@@ -126,7 +128,7 @@ class Driver:
         except Exception as e:
             raise DepthError(e)
 
-    def my_trades(self, symbol: str = None) -> list:
+    def trades(self, symbol: str = None, to_excel: bool = False) -> list:
         """The function takes all client trades.
         Time format: dt.fromtimestamp(int(str(trade["time"])[:-3])).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -143,7 +145,9 @@ class Driver:
 
         try:
             trades = self.client.my_trades(symbol=symbol) # Get all trades from client by symbol.
-            return trades
+            if to_excel:
+                self.to_excel(trades)
+            return trades # Return account trades
         except Exception as e:
             raise TradesError(e)
 
@@ -189,87 +193,83 @@ class Driver:
             price+=float(n[0]) # Add price of coin. Different value with each position.
         return to_float_format(price/limit)
 
-    def stream(self):
+    def stream(self, count_iter: int):
         get_price = self.get_price_by_symbol # (Function object) Gets the price of a symbol.
         get_qty = self.get_qty_by_symbol     # (Function object) Gets the balance value of a symbol.
         to_float = to_float_format           # (Function object) Convert value to float type.
         percent = self.get_percent           # (Function object) Get percent.
 
-        params = {
-            "symbol": None,
-            "side": None,
-            "type": "MARKET",
-            "quantity": None
-        }
-
-        count_iter: int = 0 # Count iteration steps. Before cycle value eqauls is 0
         before_commission: float = 0.0 # Commission value before cycle. Value equals is 0
-
+        true_potential_profit_values = []
+        time_true_potential_profit_values = []
+        false_potential_profit_values = []
+        counter = 0
         while True:
             cycle_start_time = dt.now() # Start time.
-            is_rouble_step = True # Rouble step while iterating. Default: True.
-            roubles = get_qty(symbol="RUB") - self.remainder # Roubles balance without remainder.
-            logger.info(F"Начальный баланс: {to_float(roubles)}₽") # Show balance value with remainder.
+            roubles = self.get_qty_by_symbol(symbol="RUB") - self.remainder # Roubles balance without remainder.
+            logger.info(F"Начальный баланс: {to_float_format(roubles)}₽") # Show balance value with remainder.
 
-            for step in self.steps_symbols:
-                couple: list = step.get("couple") # Get couple from steps value.
-                symbol: str = "".join(couple)     # Join couple in the symbol.
+            if roubles < 0:
+                return logger.error("Операция не может быть выполнена при отрицательном балансе!")
+            else:
+                template_steps = []
+                for i, step in enumerate(steps):
+                    couple: list = step.get("couple") # Get couple from steps value.
+                    symbol: str = "".join(couple)     # Join couple in the symbol.
 
-                params["symbol"] = symbol         # Set a symbol value in the params.
-                params["side"] = step.get("side") # Set a side value in the params.
+                    order_params["symbol"] = symbol         # Set a symbol value in the params.
+                    order_params["side"] = step.get("side") # Set a side value in the params.
 
-                if not couple[0] in ("USDT", "RUB",):
-                    repeat_price = get_price("DOTUSDT")
-                    if is_rouble_step:
-                        before_count_exchng = to_float(roubles / get_price(symbol=symbol)) # Generated count exchange.
-                        order_commission = to_float(percent((before_count_exchng * self.percent / 100) * repeat_price, is_dollar=True)) # Generated commission per order.
+                    if not couple[0] in ("USDT", "RUB",):
+                        repeat_price = self.get_price_by_symbol("DOTUSDT")
+                        if self.is_rouble_step:
+                            before_count_exchng = to_float(roubles / get_price(symbol=symbol)) # Generated count exchange.
+                            order_commission = to_float(percent((before_count_exchng * self.percent / 100) * repeat_price, is_dollar=True)) # Generated commission per order.
+                            before_commission+=order_commission # Add commissiom value per order to the main commission value.
+                            order_params["quantity"] = before_count_exchng # Set quantity in the params.
+                            self.is_rouble_step=False # Set False value for var because next step must be another coin.
+                            self.temp_steps(**order_params)
+                        else:
+                            order_params["quantity"] = before_count_exchng # Set quantity in the params.
+                            before_count_exchng = to_float(before_count_exchng * repeat_price) # Generated count exchange.
+                            order_commission = to_float(percent(before_count_exchng * self.percent / 100, is_dollar=True)) # Generated commission per order.
+                            before_commission+=order_commission # Add commissiom value per order to the main commission value.
+                            self.temp_steps(**order_params)
+                    elif couple[0] == "USDT":
+                        # Set quantity in the params and convert to integer format because last order to support integer type.
+                        order_params["quantity"] = to_integer_format(before_count_exchng)
+                        before_count_exchng = before_count_exchng * to_float(get_price(symbol=symbol)) # Generated count exchange.
+                        order_commission = to_float(percent(before_count_exchng)) # Generated commission per order.
                         before_commission+=order_commission # Add commissiom value per order to the main commission value.
-                        params["quantity"] = before_count_exchng # Set quantity in the params.
-                        is_rouble_step=False # Set False value for var because next step must be another coin.
-                        resp_start_time = dt.now() # Start time.
-                        response = self.create_new_order(**params)
-                        resp_end_time = (dt.now() - resp_start_time).total_seconds() # End time.
-                        logger.info(F"1 ITER Время выполнения (секунды) > {resp_end_time} => {response}")
-                    else:
-                        params["quantity"] = before_count_exchng # Set quantity in the params.
-                        before_count_exchng = to_float(before_count_exchng * repeat_price) # Generated count exchange.
-                        order_commission = to_float(percent(before_count_exchng * self.percent / 100, is_dollar=True)) # Generated commission per order.
-                        before_commission+=order_commission # Add commissiom value per order to the main commission value.
-                        resp_start_time = dt.now() # Start time.
-                        response = self.create_new_order(**params)
-                        resp_end_time = (dt.now() - resp_start_time).total_seconds() # End time.
-                        logger.info(F"2 ITER Время выполнения (секунды) > {resp_end_time} => {response}")
-                elif couple[0] == "USDT":
-                    # Set quantity in the params and convert to integer format because last order to support integer type.
-                    params["quantity"] = to_integer_format(before_count_exchng)
-                    before_count_exchng = before_count_exchng * to_float(get_price(symbol=symbol)) # Generated count exchange.
-                    order_commission = to_float(percent(before_count_exchng)) # Generated commission per order.
-                    before_commission+=order_commission # Add commissiom value per order to the main commission value.
-                    resp_start_time = dt.now() # Start time.
-                    response = self.create_new_order(**params)
-                    resp_end_time = (dt.now() - resp_start_time).total_seconds() # End time.
-                    logger.info(F"3 ITER Время выполнения (секунды) > {resp_end_time} => {response}")
-                    is_rouble_step = True # Set True value for var because next step must be with roubles.
+                        self.is_rouble_step = True # Set True value for var because next step must be with roubles.
+                        template_steps = self.temp_steps(**order_params)
 
-            before_profit = "{:0.5f}".format(((before_count_exchng - before_commission) * 100 / roubles) - 100)
+                potential_profit = ((before_count_exchng - before_commission) * 100 / roubles) - 100
+                potential_profit_fmt = "{:0.5f}".format(potential_profit)
 
-            logger.info((
-                F"Конечный баланс: {before_count_exchng - before_commission}₽; "
-                F"Комиссия: {to_float(before_commission)}₽; "
-                F"Потенциальный профит: {before_profit}%"
-                )
-            )
+                if potential_profit > 0:
+                    true_potential_profit_values.append(potential_profit)
+                    logger.info((
+                        F"Конечный баланс: {before_count_exchng - before_commission}₽; "
+                        F"Комиссия: {to_float(before_commission)}₽; "
+                        F"Потенциальный профит: {potential_profit_fmt}%"
+                    )
+                    )
+                    self.make_template_steps(template_steps)
+                else:
+                    false_potential_profit_values.append(potential_profit)
+                    logger.info(F"Операция не была проведена, так как потенциальный профит отрицательный ({potential_profit_fmt})")
 
-            cycle_end_time = (dt.now() - cycle_start_time).total_seconds() # End time.
-            logger.info(F"Operation time (seconds): {cycle_end_time}\n")
+                # Reset varibales
+                before_commission = 0.0
+                cycle_end_time = None
 
-            # Reset varibales
-            before_commission = 0.0
-            cycle_end_time = None
+                cycle_end_time = (dt.now() - cycle_start_time).total_seconds() # End time.
+                logger.info("Operation time (seconds): {:.1f} seconds.\n".format(cycle_end_time))
 
-            count_iter+=1
-            if count_iter == 5:
-                break
+                counter+=1
+                if counter == count_iter:
+                    break
 
     def get_percent(self, qty: str = None, is_dollar: bool = False) -> float:
         """The function generates a percent per order. The percent value is 0.1
@@ -290,9 +290,83 @@ class Driver:
 
         if is_dollar:
             start_time = dt.now() # Start time.
-            qty: float = qty * self.get_price_by_symbol(symbol="USDTRUB")
+            qty: float = qty * self.get_price_by_symbol(symbol="USDTRUB") # Generated quantity after get symbol price.
             end_time = (dt.now() - start_time).total_seconds() # End time.
             logger.info(F"Стакан на USDTRUB для расчета комиссии запрошен > Время (секунды): {end_time}")
         else:
             qty: float = qty * self.percent / 100
         return qty
+
+    def to_excel(self, trades: list):
+        """The function writes orders to an excel file
+
+        Params
+        ------
+            trades : list
+                All trades from account
+
+        Returns
+        -------
+            logger message
+        """
+
+        basename = "trades"
+        suffix = dt.now().strftime("%y%m%d_%H%M%S")
+        filename = "_".join([basename, suffix]) # e.g. 'mylogfile_120508_171442'
+        
+        df = pd.DataFrame(trades) # Convert data to the DataFrame.
+        df.to_excel(F"bdata/{filename}.xlsx", index=False) # Save data in the new file.
+
+        return logger.info(F"File {filename}.xlsx saved in bdata. Path: bdata/{filename}.xlsx")
+
+    def get_response(self, i, **order_params: dict):
+        """The function creates a new order and receives an answer and writes in the log file.
+
+        Params
+        ------
+            **order_params : dict
+                Converted data to create an order.
+
+        Returns
+        -------
+            logger message
+        """
+
+        resp_start_time = dt.now() # Start time.
+        response = self.create_new_order(**order_params) # Make new request.
+        resp_end_time = (dt.now() - resp_start_time).total_seconds() # End time.
+        return logger.info(F"{i+1} ITER Время выполнения (секунды) > {resp_end_time} => {response}")
+
+    def make_template_steps(self, template_steps: list):
+        """The function is triggered when the potential profit is positive.\n
+        The function saves all values to execute an order when the potential profit is positive
+
+        Params
+        ------
+            template_steps : list
+                All template steps.
+        """
+
+        # Go through all the steps and execute the query.
+        for i, t_step in enumerate(template_steps):
+            self.get_response(i, **t_step)
+
+    def temp_steps(self, _o_p = [], **o_p):
+        """The function adds all steps to perform them at a positive potential profit.
+
+        Params
+        ------
+            _o_p : list
+                Default empty list. Each step is added to the list during iteration.
+
+            **o_p : dict
+                Order params.
+
+        Returns
+        -------
+            _o_p : list
+                List with order params.
+        """
+
+        _o_p.append(o_p) # Append order params in the list.
+        return _o_p
