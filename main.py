@@ -32,6 +32,8 @@ def main():
     parser.add_argument('-to_excel', type=str2bool, default=False, help='Save trades to excel file') # Save trades to excel file
     parser.add_argument('-run', action='store_true', help="Run stream") # Run stream (main function)
     parser.add_argument('-iter', type=int, default=0, help="Count iterations") # Count iterations
+    parser.add_argument('-upload_all_couples', action='store_true', help='Upload all couples to excel by limit')
+    parser.add_argument('-limit', type=int, default=1, help="Limit price of couple") # Limit price of couple
 
     args = parser.parse_args() # Parse arguments
     if not any(args.__dict__.values()):
@@ -48,6 +50,11 @@ def main():
                 return logger.info("Wrong value. Must not be less than or equal to zero.")
             else:
                 core.stream(count_iter=args.iter)
+        elif args.upload_all_couples:
+            if args.limit <= 0:
+                return logger.info("Wrong value. Must not be less than or equal to zero.")
+            else:
+                core.upload_all_couples(args.limit)
 
 if __name__ == "__main__":
     try:
