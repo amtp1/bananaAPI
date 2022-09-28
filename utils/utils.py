@@ -212,7 +212,7 @@ class Core:
             if roubles < 0:
                 return logger.error("Операция не может быть выполнена при отрицательном балансе!")
             else:
-                template_steps = []
+                template_steps: list = []
                 for i, step in enumerate(steps):
                     couple: list = step.get("couple") # Get couple from steps value.
                     symbol: str = "".join(couple)     # Join couple in the symbol.
@@ -370,3 +370,38 @@ class Core:
 
         _o_p.append(o_p) # Append order params in the list.
         return _o_p
+
+    def upload_all_couples(self, limit):
+        path = r"bdata/%s"
+        exchange_info = self.client.exchange_info()
+        symbols = exchange_info.get("symbols")
+        if symbols:
+            asks_data: list = list()
+            bids_data: list = list()
+
+            for symbol in symbols:
+                symbol = symbol.get("symbol")
+                asks = self.depth(symbol=symbol, limit=limit).get("asks")
+                bids = self.depth(symbol=symbol, limit=limit).get("bids")
+
+                asks_dct = {"Couple": symbol}
+                bids_dct = {"Couple": symbol}
+                [asks_dct.update({"Pos%i" % (i+1): a[0]}) for i, a in enumerate(asks)]
+                [bids_dct.update({"Pos%i" % (i+1): b[0]}) for i, b in enumerate(bids)]
+
+                asks_data.append(asks_dct)
+                bids_data.append(bids_dct)
+
+            basename = "couples"
+            suffix = dt.now().strftime("%y%m%d_%H%M%S")
+            filename = "_".join([basename, suffix]) # e.g. 'mylogfile_120508_171442'
+
+            asks_df = pd.DataFrame(asks_data) # Convert data to the DataFrame.
+            bids_df = pd.DataFrame(bids_data) # Convert data to the DataFrame.
+            # df.to_excel(F"bdata/{filename}.xlsx", index=False) # Save data in the new file.
+
+            with pd.ExcelWriter(path % "%s.xlsx" % filename) as writer:
+                asks_df.to_excel(writer, sheet_name='Asks', index=False)
+                bids_df.to_excel(writer, sheet_name='Bids', index=False)
+
+            return logger.info(F"File {filename}.xlsx saved in bdata. Path: %s" % path % "%s.xlsx" % filename)
